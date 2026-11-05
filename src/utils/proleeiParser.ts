@@ -39,21 +39,16 @@ export function identificarPolo(municipio: string): string {
   return 'Não encontrado';
 }
 
-// Mantém os campos de identificação independentes das regras de extração das tabelas.
-function extrairNumeroEmLinha(
-  linhas: string[],
-  padraoRotulo: RegExp
-): number | string {
+function extrairNumeroEmLinha(linhas: string[], padraoRotulo: RegExp): number | string {
   const indice = linhas.findIndex(linha => padraoRotulo.test(normalizar(linha)));
   if (indice < 0) return 'Não encontrado';
 
-  const linha = linhas[indice];
-  const posRotulo = linha.search(padraoRotulo);
-  const depoisRotulo = linha.slice(posRotulo).replace(padraoRotulo, ' ');
+  const linhaNormalizada = normalizar(linhas[indice]);
+  const posRotulo = linhaNormalizada.search(padraoRotulo);
+  const depoisRotulo = linhaNormalizada.slice(posRotulo).replace(padraoRotulo, ' ');
   const numeroNaLinha = depoisRotulo.match(/(?:^|[^\d])(\d{1,3})(?!\d)/);
   if (numeroNaLinha) return Number(numeroNaLinha[1]);
 
-  // Alguns OCRs colocam o valor isolado na linha imediatamente seguinte.
   const proxima = (linhas[indice + 1] || '').trim();
   if (/^\d{1,3}$/.test(proxima)) return Number(proxima);
   return 'Não encontrado';
@@ -61,25 +56,22 @@ function extrairNumeroEmLinha(
 
 function extrairFaltas(linhas: string[]): number | string {
   const linhaResposta = linhas.find(l => normalizar(l).includes('HOUVE FALTAS JUSTIFICADAS'));
-  if (linhaResposta) {
-    const resposta = normalizar(linhaResposta);
-    if (/\(\s*x\s*\)\s*NAO\b/.test(resposta)) return 'Não se aplica';
-  }
+  if (linhaResposta && /\(\s*x\s*\)\s*NAO\b/.test(normalizar(linhaResposta))) return 'Não se aplica';
 
   const indice = linhas.findIndex(l => /NUMERO\s+DE\s+FALTAS\s+JUSTIFICADAS/.test(normalizar(l)));
   if (indice < 0) return 'Não encontrado';
 
-  const linha = linhas[indice];
+  const linhaNormalizada = normalizar(linhas[indice]);
   const rotulo = /NUMERO\s+DE\s+FALTAS\s+JUSTIFICADAS\s*:?/;
-  const depoisRotulo = linha.slice(linha.search(rotulo)).replace(rotulo, ' ');
-  if (/NAO\s+SE\s+APLICA/.test(normalizar(depoisRotulo))) return 'Não se aplica';
+  const depoisRotulo = linhaNormalizada.slice(linhaNormalizada.search(rotulo)).replace(rotulo, ' ');
+  if (/NAO\s+SE\s+APLICA/.test(depoisRotulo)) return 'Não se aplica';
 
   const numero = depoisRotulo.match(/(?:^|[^\d])(\d{1,2})(?!\d)/);
   if (numero) return Number(numero[1]);
 
-  const proxima = (linhas[indice + 1] || '').trim();
+  const proxima = normalizar(linhas[indice + 1] || '');
   if (/^\d{1,2}$/.test(proxima)) return Number(proxima);
-  if (/^NAO\s+SE\s+APLICA\.?$/i.test(normalizar(proxima))) return 'Não se aplica';
+  if (/^NAO\s+SE\s+APLICA\.?$/.test(proxima)) return 'Não se aplica';
   return 'Não encontrado';
 }
 
@@ -93,7 +85,6 @@ function extrairAtividades(linhas: string[]): Array<{ data: string; ch: number |
     if (fim < 0) fim = linhas.length;
     linhasTabela = linhas.slice(inicio, fim);
   } else {
-    // Fallback para textos colados sem o título da tabela: só aceita linhas com data e dados de encontro.
     linhasTabela = linhas.filter(l => /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/.test(l) && /(HORAS?|\bH\b|MANHA|TARDE|NOITE)/i.test(normalizar(l)));
   }
 
@@ -112,10 +103,7 @@ function extrairAtividades(linhas: string[]): Array<{ data: string; ch: number |
       if (datasProcessadas.has(data)) continue;
       datasProcessadas.add(data);
 
-      // Carga horária e turno são lidos exclusivamente na mesma linha da data.
-      const depoisData = linha.slice(match.index + match[0].length);
-      const antesData = linha.slice(0, match.index);
-      const contextoLinha = `${antesData} ${depoisData}`;
+      const contextoLinha = linha.slice(0, match.index) + ' ' + linha.slice(match.index + match[0].length);
       const chMatch = contextoLinha.match(/\b(\d+(?:[.,]\d+)?)\s*(?:horas?|h)\b/i);
       const ch: number | string = chMatch ? Number(chMatch[1].replace(',', '.')) : 'Não encontrado';
       const turnoNormalizado = normalizar(contextoLinha);
@@ -123,7 +111,6 @@ function extrairAtividades(linhas: string[]): Array<{ data: string; ch: number |
       if (/\bMANHA\b/.test(turnoNormalizado)) turno = 'Manhã';
       else if (/\bTARDE\b/.test(turnoNormalizado)) turno = 'Tarde';
       else if (/\bNOITE\b/.test(turnoNormalizado)) turno = 'Noite';
-
       atividades.push({ data, ch, turno });
     }
   }
@@ -152,9 +139,7 @@ export function extrairDados(textoBruto: string, nomeArquivo: string = '') {
 
   let formadora = '';
   const formMatch = texto.match(/(?:Formadora\s*Municipal|Formadora|Formador)\s*[:\-]?\s*([^\n\r]+)/i);
-  if (formMatch) {
-    formadora = formMatch[1].replace(/RELATÓRIO.*$|RELATORIO.*$|Documento.*$|–.*$/gi, '').trim();
-  }
+  if (formMatch) formadora = formMatch[1].replace(/RELATÓRIO.*$|RELATORIO.*$|Documento.*$|–.*$/gi, '').trim();
   if ((!formadora || formadora.length < 3 || formadora.includes('_') || formadora.includes('.pdf')) && nomeArquivo) {
     const partes = nomeArquivo.split(/[-–_]/);
     if (partes.length > 1) {
@@ -184,7 +169,6 @@ export function gerarLinhasPlanilha(dados: ReturnType<typeof extrairDados>, nome
     DATA: ativ.data,
     'C.H.': ativ.ch,
     TURNOS: ativ.turno,
-    // Inscritos, presentes e faltas são totais do relatório: registrar uma única vez.
     'Nº de cursistas': index === 0 ? dados.cursistas : '',
     'Nº de Presentes': index === 0 ? dados.presentes : '',
     'Faltas justificadas': index === 0 ? dados.faltas : '',
