@@ -1,0 +1,6 @@
+{
+  "name": "Consolidador ProLEEI RS - Relatórios de Formação",
+  "description": "Sistema oficial de automação e consolidação de relatórios mensais de formação do ProLEEI no Rio Grande do Sul, com suporte a OCR, extração inteligente e mapeamento de polos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
