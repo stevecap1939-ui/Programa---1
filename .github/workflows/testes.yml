@@ -1,0 +1,35 @@
+name: Testes do ProLEEI
+
+on:
+  push:
+    branches:
+      - main
+      - correcao-extracao-relatorios
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  verificar:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v5
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Instalar dependências
+        run: npm install
+
+      - name: Testes automatizados
+        run: npm test
+
+      - name: Verificar TypeScript
+        run: npm run lint
+
+      - name: Compilar projeto
+        run: npm run build

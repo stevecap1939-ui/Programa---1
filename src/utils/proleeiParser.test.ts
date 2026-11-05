@@ -1,189 +1,157 @@
-import { MAPEAMENTO_POLOS } from './polosData';
+import { describe, expect, it } from 'vitest';
+import {
+  extrairDados,
+  gerarLinhasPlanilha,
+  identificarPolo,
+} from './proleeiParser';
 
-export interface LinhaPlanilhaProLEEI {
-  id: string;
-  Polo: string;
-  Município: string;
-  Formadora: string;
-  DATA: string;
-  'C.H.': number | string;
-  TURNOS: string;
-  'Nº de cursistas': number | string;
-  'Nº de Presentes': number | string;
-  'Faltas justificadas': number | string;
-  OBSERVAÇÃO: string;
-  Arquivo_Origem: string;
-}
+describe('identificação de polo', () => {
+  it('identifica Aceguá no polo Bagé', () => {
+    expect(identificarPolo('Aceguá')).toBe('Bagé');
+  });
 
-function normalizar(texto: string): string {
-  if (!texto) return '';
-  return texto
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toUpperCase()
-    .trim();
-}
+  it('identifica Agudo no polo Santa Maria', () => {
+    expect(identificarPolo('Agudo')).toBe('Santa Maria');
+  });
+});
 
-function limparMunicipio(municipioRaw: string): string {
-  if (!municipioRaw) return '';
-  let mun = municipioRaw.replace(/[-–]\s*RS$/i, '').trim();
-  mun = mun.replace(/\bRS\b/gi, '').trim();
-  return mun
-    .toLowerCase()
-    .split(' ')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
+describe('extração dos relatórios ProLEEI', () => {
+  it('extrai identificação, encontros e totais do relatório de Aceguá', () => {
+    const texto = [
+      'Polo: Bagé',
+      'Município: Aceguá',
+      'Nome da Formadora Municipal: Lisiane T. Pradie Teixeira',
+      'Número total de cursistas inscritos: 8',
+      'Número de cursistas presentes no encontro: 8',
+      'Houve faltas justificadas? ( ) SIM (x) NÃO',
+      'Data e carga horária do encontro:',
+      '11/03/2026 | 4 horas | Noite',
+      '13/03/2026 | 4 horas | Noite',
+      'Local de realização:',
+    ].join('\n');
 
-export function identificarPolo(municipio: string): string {
-  if (!municipio || municipio === 'Não encontrado') return 'Não encontrado';
-  const munNorm = normalizar(limparMunicipio(municipio));
+    const dados = extrairDados(texto, 'Aceguá - Lisiane.pdf');
 
-  for (const [polo, cidades] of Object.entries(MAPEAMENTO_POLOS)) {
-    for (const cidade of cidades) {
-      const cidNorm = normalizar(cidade);
-      if (munNorm === cidNorm || munNorm.includes(cidNorm) || cidNorm.includes(munNorm)) {
-        return polo;
-      }
-    }
-  }
-  return 'Não encontrado';
-}
+    expect(dados).toMatchObject({
+      polo: 'Bagé',
+      municipio: 'Aceguá',
+      formadora: 'Lisiane T. Pradie Teixeira',
+      cursistas: 8,
+      presentes: 8,
+      faltas: 'Não se aplica',
+    });
+    expect(dados.atividades).toEqual([
+      { data: '11/03/2026', ch: 4, turno: 'Noite' },
+      { data: '13/03/2026', ch: 4, turno: 'Noite' },
+    ]);
+  });
 
-export function extrairDados(textoBruto: string, nomeArquivo: string = '') {
-  const texto = textoBruto || '';
+  it('extrai Agudo e preserva a resposta Não se aplica para faltas', () => {
+    const texto = [
+      'Polo: Agudo',
+      'Município: Agudo',
+      'Nome da Formadora Municipal: Emanueli Unfer',
+      'Número total de cursistas inscritos: 21',
+      'Número de cursistas presentes no encontro: 21',
+      'Número de faltas justificadas: Não se aplica',
+      'Data e carga horária do encontro:',
+      '11/03/2026 | 3 horas | Noite',
+      '12/03/2026 | 3 horas | Noite',
+      'Local de realização:',
+    ].join('\n');
 
-  // 1. Extração de Município
-  let municipio = '';
-  const munMatch = texto.match(/(?:Município|Municipio)\s*[:\-]?\s*([^\n\r]+)/i);
-  if (munMatch) {
-    municipio = limparMunicipio(munMatch[1]);
-  }
-  if ((!municipio || municipio === 'Rs') && nomeArquivo) {
-    const partes = nomeArquivo.split(/[-–_]/);
-    if (partes.length > 0) {
-      municipio = limparMunicipio(partes[0]);
-    }
-  }
-  const municipioFinal = (municipio && municipio.length > 1) ? municipio : 'Não encontrado';
+    const dados = extrairDados(texto, 'Agudo - Emanueli.pdf');
 
-  // 2. Extração de Polo
-  let polo = '';
-  const poloMatch = texto.match(/Polo\s*[:\-]?\s*([^\n\r]+)/i);
-  if (poloMatch) {
-    polo = poloMatch[1].trim().replace(/[-–]\s*RS$/i, '');
-  }
-  if (!polo || polo === 'RS' || polo === 'Não Identificado') {
-    polo = identificarPolo(municipioFinal);
-  }
-  const poloFinal = (polo && polo !== 'RS') ? polo : identificarPolo(municipioFinal);
+    expect(dados).toMatchObject({
+      polo: 'Agudo',
+      municipio: 'Agudo',
+      formadora: 'Emanueli Unfer',
+      cursistas: 21,
+      presentes: 21,
+      faltas: 'Não se aplica',
+    });
+    expect(dados.atividades).toEqual([
+      { data: '11/03/2026', ch: 3, turno: 'Noite' },
+      { data: '12/03/2026', ch: 3, turno: 'Noite' },
+    ]);
+  });
 
-  // 3. Extração de Formadora
-  let formadora = '';
-  const formMatch = texto.match(/(?:Formadora\s*Municipal|Formadora|Formador)\s*[:\-]?\s*([^\n\r]+)/i);
-  if (formMatch) {
-    formadora = formMatch[1]
-      .replace(/RELATÓRIO.*$|RELATORIO.*$|Documento.*$/gi, '')
-      .trim();
-  }
-  if ((!formadora || formadora.length < 3) && nomeArquivo) {
-    const partes = nomeArquivo.split(/[-–_]/);
-    if (partes.length > 1) {
-      formadora = partes[1]
-        .replace(/RELATÓRIO.*$|RELATORIO.*$|Documento.*$/gi, '')
-        .trim();
-    }
-  }
+  it('distingue zero explícito de informação não encontrada', () => {
+    const textoComZero = [
+      'Número de faltas justificadas: 0',
+      'Data e carga horária do encontro:',
+      '11/03/2026 | 3 horas | Noite',
+      'Local de realização:',
+    ].join('\n');
+    const textoSemInformacao = [
+      'Data e carga horária do encontro:',
+      '11/03/2026 | 3 horas | Noite',
+      'Local de realização:',
+    ].join('\n');
 
-  const formadoraFinal = (formadora && formadora.length > 2)
-    ? formadora.toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
-    : 'Não encontrado';
+    expect(extrairDados(textoComZero).faltas).toBe(0);
+    expect(extrairDados(textoSemInformacao).faltas).toBe('Não encontrado');
+    expect(extrairDados(textoSemInformacao).cursistas).toBe('Não encontrado');
+    expect(extrairDados(textoSemInformacao).presentes).toBe('Não encontrado');
+  });
 
-  // 4. Extração de Cursistas, Presentes e Faltas (retorna "Não encontrado" se ausente)
-  const cursistasMatch = texto.match(/(?:cursistas inscritos|total de cursistas|inscritos na turma)[^0-9]*(\d+)/i);
-  const cursistas = cursistasMatch ? parseInt(cursistasMatch[1], 10) : 'Não encontrado';
+  it('não inventa carga horária ou turno ausentes na linha do encontro', () => {
+    const texto = [
+      'Data e carga horária do encontro:',
+      '11/03/2026',
+      'Local de realização:',
+    ].join('\n');
 
-  const presentesMatch = texto.match(/(?:cursistas presentes|presentes no encontro)[^0-9]*(\d+)/i);
-  const presentes = presentesMatch ? parseInt(presentesMatch[1], 10) : 'Não encontrado';
+    expect(extrairDados(texto).atividades).toEqual([
+      { data: '11/03/2026', ch: 'Não encontrado', turno: 'Não encontrado' },
+    ]);
+  });
 
-  const faltasMatch = texto.match(/faltas justificadas[^0-9]*(\d+)/i);
-  const faltas = faltasMatch ? parseInt(faltasMatch[1], 10) : 0;
+  it('não usa datas de outras partes do relatório como encontros', () => {
+    const texto = [
+      'Data de preenchimento: 20/03/2026',
+      'Data e carga horária do encontro:',
+      '11/03/2026 | 3 horas | Noite',
+      'Local de realização:',
+      'Registro complementar em 25/03/2026',
+    ].join('\n');
 
-  // 5. Extração de Datas
-  const atividades: Array<{ data: string; ch: number | string; turno: string }> = [];
-  const regexDatas = /\b(\d{2})[/-](\d{2})[/-](\d{2,4})\b/g;
-  let match;
-  const datasProcessadas = new Set<string>();
+    expect(extrairDados(texto).atividades).toEqual([
+      { data: '11/03/2026', ch: 3, turno: 'Noite' },
+    ]);
+  });
+});
 
-  while ((match = regexDatas.exec(texto)) !== null) {
-    const dia = match[1];
-    const mes = match[2];
-    let ano = match[3];
-    
-    if (ano.length === 2) {
-      ano = '20' + ano;
-    }
-    
-    const dataStr = `${dia}/${mes}/${ano}`;
+describe('geração das linhas da planilha', () => {
+  it('registra os totais gerais somente na primeira linha do relatório', () => {
+    const texto = [
+      'Polo: Bagé',
+      'Município: Aceguá',
+      'Nome da Formadora Municipal: Lisiane T. Pradie Teixeira',
+      'Número total de cursistas inscritos: 8',
+      'Número de cursistas presentes no encontro: 8',
+      'Número de faltas justificadas: 1',
+      'Data e carga horária do encontro:',
+      '11/03/2026 | 4 horas | Noite',
+      '13/03/2026 | 4 horas | Noite',
+      'Local de realização:',
+    ].join('\n');
 
-    if (ano === '2026' && !datasProcessadas.has(dataStr)) {
-      datasProcessadas.add(dataStr);
-      
-      const indice = match.index;
-      const trecho = texto.substring(indice, indice + 100);
-      
-      let ch: number | string = 4.0;
-      const chMatch = trecho.match(/(\d+(?:[.,]\d+)?)\s*(?:horas?|h)/i);
-      if (chMatch) {
-        ch = parseFloat(chMatch[1].replace(',', '.'));
-      }
+    const linhas = gerarLinhasPlanilha(
+      extrairDados(texto),
+      'Aceguá - Lisiane.pdf',
+    );
 
-      let turno = 'Não encontrado';
-      const tNorm = normalizar(trecho);
-      if (tNorm.includes('MANHA')) turno = 'Manhã';
-      else if (tNorm.includes('TARDE')) turno = 'Tarde';
-      else if (tNorm.includes('NOITE')) turno = 'Noite';
-
-      atividades.push({ data: dataStr, ch, turno });
-    }
-  }
-
-  // Se nenhuma data foi encontrada, atribui "Não encontrado" em vez de inventar
-  if (atividades.length === 0) {
-    const fallbackMatch = texto.match(/\b(\d{2}[/-]\d{2}[/-]\d{2,4})\b/);
-    if (fallbackMatch) {
-      let d = fallbackMatch[1].replace(/-/g, '/');
-      if (d.length === 8) d = d.substring(0, 6) + '20' + d.substring(6);
-      atividades.push({ data: d, ch: 'Não encontrado', turno: 'Não encontrado' });
-    } else {
-      atividades.push({ data: 'Não encontrado', ch: 'Não encontrado', turno: 'Não encontrado' });
-    }
-  }
-
-  return {
-    polo: poloFinal,
-    municipio: municipioFinal,
-    formadora: formadoraFinal,
-    cursistas,
-    presentes,
-    faltas,
-    atividades
-  };
-}
-
-export function gerarLinhasPlanilha(dados: ReturnType<typeof extrairDados>, nomeArquivo: string): LinhaPlanilhaProLEEI[] {
-  return dados.atividades.map((ativ, index) => ({
-    id: `${nomeArquivo}-${index}-${Date.now()}`,
-    Polo: dados.polo || 'Não encontrado',
-    Município: dados.municipio || 'Não encontrado',
-    Formadora: dados.formadora || 'Não encontrado',
-    DATA: ativ.data,
-    'C.H.': ativ.ch,
-    TURNOS: ativ.turno,
-    'Nº de cursistas': dados.cursistas,
-    'Nº de Presentes': dados.presentes,
-    'Faltas justificadas': dados.faltas,
-    OBSERVAÇÃO: '',
-    Arquivo_Origem: nomeArquivo
-  }));
-}
+    expect(linhas).toHaveLength(2);
+    expect(linhas[0]).toMatchObject({
+      'Nº de cursistas': 8,
+      'Nº de Presentes': 8,
+      'Faltas justificadas': 1,
+    });
+    expect(linhas[1]).toMatchObject({
+      'Nº de cursistas': '',
+      'Nº de Presentes': '',
+      'Faltas justificadas': '',
+    });
+  });
+});
