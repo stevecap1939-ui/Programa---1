@@ -85,7 +85,7 @@ export async function lerConteudoArquivo(file: File, onProgresso?: (msg: string)
               await pagina.render({ canvasContext: context, viewport }).promise;
               const ocr = await worker.recognize(canvas);
               const textoOCR = ocr?.data?.text || '';
-              if (textoOCR.trim().length > textoPagina.trim().length) textoPagina = textoOCR;
+              if ((primeiraPaginaIncompleta && /DATA\\s*(?:E|\\/)\\s*CARGA\\s*HORARIA/i.test(textoOCR) && /CURSISTAS\\s+INSCRITOS/i.test(textoOCR)) || textoOCR.trim().length > textoPagina.trim().length) {\n                textoPagina = textoOCR;\n              }
             }
           } catch (erroOCR) {
             console.warn(`Falha no OCR da página ${i}:`, erroOCR);
