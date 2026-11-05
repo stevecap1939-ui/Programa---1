@@ -17,163 +17,162 @@ export interface LinhaPlanilhaProLEEI {
 
 function normalizar(texto: string): string {
   if (!texto) return '';
-  return texto
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toUpperCase()
-    .trim();
+  return texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
 }
 
 function limparMunicipio(municipioRaw: string): string {
   if (!municipioRaw) return '';
   let mun = municipioRaw.replace(/[-–]\s*RS$/i, '').trim();
   mun = mun.replace(/\bRS\b/gi, '').trim();
-  return mun
-    .toLowerCase()
-    .split(' ')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
+  return mun.toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 }
 
 export function identificarPolo(municipio: string): string {
   if (!municipio || municipio === 'Não encontrado') return 'Não encontrado';
   const munNorm = normalizar(limparMunicipio(municipio));
-
   for (const [polo, cidades] of Object.entries(MAPEAMENTO_POLOS)) {
     for (const cidade of cidades) {
       const cidNorm = normalizar(cidade);
-      if (munNorm === cidNorm || munNorm.includes(cidNorm) || cidNorm.includes(munNorm)) {
-        return polo;
-      }
+      if (munNorm === cidNorm || munNorm.includes(cidNorm) || cidNorm.includes(munNorm)) return polo;
     }
   }
   return 'Não encontrado';
 }
 
+// Mantém os campos de identificação independentes das regras de extração das tabelas.
+function extrairNumeroEmLinha(
+  linhas: string[],
+  padraoRotulo: RegExp
+): number | string {
+  const indice = linhas.findIndex(linha => padraoRotulo.test(normalizar(linha)));
+  if (indice < 0) return 'Não encontrado';
+
+  const linha = linhas[indice];
+  const posRotulo = linha.search(padraoRotulo);
+  const depoisRotulo = linha.slice(posRotulo).replace(padraoRotulo, ' ');
+  const numeroNaLinha = depoisRotulo.match(/(?:^|[^\d])(\d{1,3})(?!\d)/);
+  if (numeroNaLinha) return Number(numeroNaLinha[1]);
+
+  // Alguns OCRs colocam o valor isolado na linha imediatamente seguinte.
+  const proxima = (linhas[indice + 1] || '').trim();
+  if (/^\d{1,3}$/.test(proxima)) return Number(proxima);
+  return 'Não encontrado';
+}
+
+function extrairFaltas(linhas: string[]): number | string {
+  const linhaResposta = linhas.find(l => normalizar(l).includes('HOUVE FALTAS JUSTIFICADAS'));
+  if (linhaResposta) {
+    const resposta = normalizar(linhaResposta);
+    if (/\(\s*x\s*\)\s*NAO\b/.test(resposta)) return 'Não se aplica';
+  }
+
+  const indice = linhas.findIndex(l => /NUMERO\s+DE\s+FALTAS\s+JUSTIFICADAS/.test(normalizar(l)));
+  if (indice < 0) return 'Não encontrado';
+
+  const linha = linhas[indice];
+  const rotulo = /NUMERO\s+DE\s+FALTAS\s+JUSTIFICADAS\s*:?/;
+  const depoisRotulo = linha.slice(linha.search(rotulo)).replace(rotulo, ' ');
+  if (/NAO\s+SE\s+APLICA/.test(normalizar(depoisRotulo))) return 'Não se aplica';
+
+  const numero = depoisRotulo.match(/(?:^|[^\d])(\d{1,2})(?!\d)/);
+  if (numero) return Number(numero[1]);
+
+  const proxima = (linhas[indice + 1] || '').trim();
+  if (/^\d{1,2}$/.test(proxima)) return Number(proxima);
+  if (/^NAO\s+SE\s+APLICA\.?$/i.test(normalizar(proxima))) return 'Não se aplica';
+  return 'Não encontrado';
+}
+
+function extrairAtividades(linhas: string[]): Array<{ data: string; ch: number | string; turno: string }> {
+  const inicio = linhas.findIndex(l => /DATA\s*(?:E|\/)\s*CARGA\s*HORARIA\s+DO\s+ENCONTRO|DATAS\s+DOS\s+ENCONTROS/i.test(normalizar(l)));
+  let linhasTabela: string[];
+
+  if (inicio >= 0) {
+    let fim = linhas.findIndex((l, i) => i > inicio &&
+      /LOCAL\s+DE\s+REALIZACAO|^\s*PARTICIPACAO\b|REGISTROS\s+DAS\s+ATIVIDADES|^\s*AVALIACAO\b/i.test(normalizar(l)));
+    if (fim < 0) fim = linhas.length;
+    linhasTabela = linhas.slice(inicio, fim);
+  } else {
+    // Fallback para textos colados sem o título da tabela: só aceita linhas com data e dados de encontro.
+    linhasTabela = linhas.filter(l => /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/.test(l) && /(HORAS?|\bH\b|MANHA|TARDE|NOITE)/i.test(normalizar(l)));
+  }
+
+  const atividades: Array<{ data: string; ch: number | string; turno: string }> = [];
+  const datasProcessadas = new Set<string>();
+  const regexData = /\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b/g;
+
+  for (const linha of linhasTabela) {
+    regexData.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = regexData.exec(linha)) !== null) {
+      const dia = match[1].padStart(2, '0');
+      const mes = match[2].padStart(2, '0');
+      const ano = match[3].length === 2 ? '20' + match[3] : match[3];
+      const data = `${dia}/${mes}/${ano}`;
+      if (datasProcessadas.has(data)) continue;
+      datasProcessadas.add(data);
+
+      // Carga horária e turno são lidos exclusivamente na mesma linha da data.
+      const depoisData = linha.slice(match.index + match[0].length);
+      const antesData = linha.slice(0, match.index);
+      const contextoLinha = `${antesData} ${depoisData}`;
+      const chMatch = contextoLinha.match(/\b(\d+(?:[.,]\d+)?)\s*(?:horas?|h)\b/i);
+      const ch: number | string = chMatch ? Number(chMatch[1].replace(',', '.')) : 'Não encontrado';
+      const turnoNormalizado = normalizar(contextoLinha);
+      let turno = 'Não encontrado';
+      if (/\bMANHA\b/.test(turnoNormalizado)) turno = 'Manhã';
+      else if (/\bTARDE\b/.test(turnoNormalizado)) turno = 'Tarde';
+      else if (/\bNOITE\b/.test(turnoNormalizado)) turno = 'Noite';
+
+      atividades.push({ data, ch, turno });
+    }
+  }
+
+  return atividades.length ? atividades : [{ data: 'Não encontrado', ch: 'Não encontrado', turno: 'Não encontrado' }];
+}
+
 export function extrairDados(textoBruto: string, nomeArquivo: string = '') {
   const texto = textoBruto || '';
+  const linhas = texto.split(/\r?\n/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
 
-  // 1. Mantém a extração de Município, Polo e Formadora (que já estão ótimas)
+  // Identificação: lógica preservada para Polo, Município e Formadora.
   let municipio = '';
   const munMatch = texto.match(/(?:Município|Municipio)\s*[:\-]?\s*([^\n\r]+)/i);
-  if (munMatch) {
-    municipio = limparMunicipio(munMatch[1]);
-  }
+  if (munMatch) municipio = limparMunicipio(munMatch[1]);
   if ((!municipio || municipio === 'Rs') && nomeArquivo) {
     const partes = nomeArquivo.split(/[-–_]/);
-    if (partes.length > 0) {
-      municipio = limparMunicipio(partes[0]);
-    }
+    if (partes.length > 0) municipio = limparMunicipio(partes[0]);
   }
   const municipioFinal = (municipio && municipio.length > 1) ? municipio : 'Não encontrado';
 
   let polo = '';
   const poloMatch = texto.match(/Polo\s*[:\-]?\s*([^\n\r]+)/i);
-  if (poloMatch) {
-    polo = poloMatch[1].trim().replace(/[-–]\s*RS$/i, '');
-  }
+  if (poloMatch) polo = poloMatch[1].trim().replace(/[-–]\s*RS$/i, '');
   const poloFinal = (polo && polo !== 'RS') ? polo : identificarPolo(municipioFinal);
 
   let formadora = '';
   const formMatch = texto.match(/(?:Formadora\s*Municipal|Formadora|Formador)\s*[:\-]?\s*([^\n\r]+)/i);
   if (formMatch) {
-    formadora = formMatch[1]
-      .replace(/RELATÓRIO.*$|RELATORIO.*$|Documento.*$|–.*$/gi, '')
-      .trim();
+    formadora = formMatch[1].replace(/RELATÓRIO.*$|RELATORIO.*$|Documento.*$|–.*$/gi, '').trim();
   }
   if ((!formadora || formadora.length < 3 || formadora.includes('_') || formadora.includes('.pdf')) && nomeArquivo) {
     const partes = nomeArquivo.split(/[-–_]/);
     if (partes.length > 1) {
       let candidato = partes[1].replace(/\.pdf$/i, '').replace(/RELATÓRIO.*$|RELATORIO.*$/gi, '').trim();
-      if (candidato.length < 3 && partes.length > 2) {
-        candidato = partes[2].replace(/\.pdf$/i, '').trim();
-      }
+      if (candidato.length < 3 && partes.length > 2) candidato = partes[2].replace(/\.pdf$/i, '').trim();
       formadora = candidato;
     }
   }
-
   const formadoraFinal = (formadora && formadora.length > 2 && !formadora.includes('_'))
     ? formadora.toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
     : 'Não encontrado';
 
-  // 2. Extração Precisa de Inscritos, Presentes e Faltas
-  let cursistas: number | string = 'Não encontrado';
-  const cursistasMatch = texto.match(/(?:total\s*de\s*cursistas\s*inscritos|cursistas\s*inscritos\s*na\s*turma|inscritos\s*na\s*turma|total\s*de\s*inscritos)[\s\S]*?(\d{1,3})/i);
-  if (cursistasMatch) {
-    const val = parseInt(cursistasMatch[1], 10);
-    if (!isNaN(val)) cursistas = val;
-  }
+  const cursistas = extrairNumeroEmLinha(linhas, /(?:NUMERO\s+TOTAL\s+DE\s+CURSISTAS\s+INSCRITOS|TOTAL\s+DE\s+CURSISTAS\s+INSCRITOS|CURSISTAS\s+INSCRITOS\s+NA\s+TURMA|INSCRITOS\s+NA\s+TURMA|TOTAL\s+DE\s+INSCRITOS)/);
+  const presentes = extrairNumeroEmLinha(linhas, /(?:NUMERO\s+DE\s+CURSISTAS\s+PRESENTES\s+NO\s+ENCONTRO|CURSISTAS\s+PRESENTES\s+NO\s+ENCONTRO|PRESENTES\s+NO\s+ENCONTRO|CURSISTAS\s+PRESENTES)/);
+  const faltas = extrairFaltas(linhas);
+  const atividades = extrairAtividades(linhas);
 
-  let presentes: number | string = 'Não encontrado';
-  const presentesMatch = texto.match(/(?:cursistas\s*presentes\s*no\s*encontro|presentes\s*no\s*encontro|cursistas\s*presentes)[\s\S]*?(\d{1,3})/i);
-  if (presentesMatch) {
-    const val = parseInt(presentesMatch[1], 10);
-    if (!isNaN(val)) presentes = val;
-  }
-
-  let faltas: number | string = 0;
-  const faltasMatch = texto.match(/faltas\s*justificadas[\s\S]*?(\d{1,2})/i);
-  if (faltasMatch) {
-    const val = parseInt(faltasMatch[1], 10);
-    if (!isNaN(val)) faltas = val;
-  }
-
-  // 3. Extração Dinâmica e Individualizada de Encontros (Data, C.H. e Turno)
-  const atividades: Array<{ data: string; ch: number | string; turno: string }> = [];
-  
-  // Procura por blocos que contêm datas no formato DD/MM/AA ou DD/MM/AAAA
-  const regexBlocoData = /\b(\d{2})[/-](\d{2})[/-](\d{2,4})\b/g;
-  let match;
-  const datasProcessadas = new Set<string>();
-
-  while ((match = regexBlocoData.exec(texto)) !== null) {
-    const dia = match[1];
-    const mes = match[2];
-    let ano = match[3];
-    if (ano.length === 2) ano = '20' + ano;
-    
-    const dataStr = `${dia}/${mes}/${ano}`;
-
-    // Evita duplicar a mesma data exata no mesmo arquivo
-    if (!datasProcessadas.has(dataStr)) {
-      datasProcessadas.add(dataStr);
-
-      // Isola o trecho ao redor da data encontrada para ler a C.H. e o Turno específicos daquele dia
-      const indice = match.index;
-      const trechoContexto = texto.substring(Math.max(0, indice - 30), Math.min(texto.length, indice + 120));
-
-      // Busca Carga Horária específica próxima à data
-      let ch: number | string = 'Não encontrado';
-      const chMatch = trechoContexto.match(/(\d+(?:[.,]\d+)?)\s*(?:horas?|h)/i);
-      if (chMatch) {
-        ch = parseFloat(chMatch[1].replace(',', '.'));
-      }
-
-      // Busca Turno específico próximo à data
-      let turno = 'Não encontrado';
-      const tNorm = normalizar(trechoContexto);
-      if (tNorm.includes('MANHA') || tNorm.includes('MANHÃ')) turno = 'Manhã';
-      else if (tNorm.includes('TARDE')) turno = 'Tarde';
-      else if (tNorm.includes('NOITE')) turno = 'Noite';
-
-      atividades.push({ data: dataStr, ch, turno });
-    }
-  }
-
-  // Se nenhuma data foi encontrada, retorna "Não encontrado" em vez de inventar
-  if (atividades.length === 0) {
-    atividades.push({ data: 'Não encontrado', ch: 'Não encontrado', turno: 'Não encontrado' });
-  }
-
-  return {
-    polo: poloFinal,
-    municipio: municipioFinal,
-    formadora: formadoraFinal,
-    cursistas,
-    presentes,
-    faltas,
-    atividades
-  };
+  return { polo: poloFinal, municipio: municipioFinal, formadora: formadoraFinal, cursistas, presentes, faltas, atividades };
 }
 
 export function gerarLinhasPlanilha(dados: ReturnType<typeof extrairDados>, nomeArquivo: string): LinhaPlanilhaProLEEI[] {
@@ -185,9 +184,10 @@ export function gerarLinhasPlanilha(dados: ReturnType<typeof extrairDados>, nome
     DATA: ativ.data,
     'C.H.': ativ.ch,
     TURNOS: ativ.turno,
-    'Nº de cursistas': dados.cursistas,
-    'Nº de Presentes': dados.presentes,
-    'Faltas justificadas': dados.faltas,
+    // Inscritos, presentes e faltas são totais do relatório: registrar uma única vez.
+    'Nº de cursistas': index === 0 ? dados.cursistas : '',
+    'Nº de Presentes': index === 0 ? dados.presentes : '',
+    'Faltas justificadas': index === 0 ? dados.faltas : '',
     OBSERVAÇÃO: '',
     Arquivo_Origem: nomeArquivo
   }));
