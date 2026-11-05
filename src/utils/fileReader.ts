@@ -82,7 +82,7 @@ export async function lerConteudoArquivo(file: File, onProgresso?: (msg: string)
             canvas.width = viewport.width;
             canvas.height = viewport.height;
             if (context) {
-              await pagina.render({ canvasContext: context, viewport }).promise;
+              await pagina.render({ canvas, canvasContext: context, viewport }).promise;
               const ocr = await worker.recognize(canvas);
               const textoOCR = ocr?.data?.text || '';
               if ((primeiraPaginaIncompleta && /DATA\s*(?:E|\/)\s*CARGA\s*HORARIA/i.test(textoOCR) && /CURSISTAS\s+INSCRITOS/i.test(textoOCR)) || textoOCR.trim().length > textoPagina.trim().length) {
