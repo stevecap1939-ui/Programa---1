@@ -1,0 +1,35 @@
+name: Testes do ProLEEI
+
+on:
+  push:
+    branches:
+      - main
+      - correcao-extracao-relatorios
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  verificar:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v5
+
+      - name: Configurar Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Instalar dependências travadas
+        run: bun install
+
+      - name: Testes automatizados
+        run: bun run test
+
+      - name: Verificar TypeScript
+        run: bun run lint
+
+      - name: Compilar projeto
+        run: bun run build
