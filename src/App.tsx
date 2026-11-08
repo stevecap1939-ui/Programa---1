@@ -108,6 +108,13 @@ export default function App() {
           continue;
         }
 
+        // Não transforma mensagens de falha do leitor em relatórios válidos.
+        // Antes, isso gerava linhas com dados ficticiamente "Não encontrado".
+        if (/Não foi possível (?:ler o conteúdo|extrair texto)|Não foi possível iniciar o OCR/i.test(texto)) {
+          erros.push(`${file.name}: Não foi possível ler o arquivo. Verifique se o PDF está íntegro ou se contém texto legível.`);
+          continue;
+        }
+
         const dadosExtraidos = extrairDados(texto, file.name);
         const linhasDoArquivo = gerarLinhasPlanilha(dadosExtraidos, file.name);
 
