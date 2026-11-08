@@ -83,10 +83,11 @@ export async function lerConteudoArquivo(file: File, onProgresso?: (msg: string)
         let textoPagina = reconstruirLinhasPDF(content.items as any[]);
 
         // OCR em páginas escaneadas ou quando faltam os rótulos centrais do formulário.
+        const textoBusca = textoPagina.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
         const primeiraPaginaIncompleta = i === 1 &&
-          (!/DATA\s*(?:E|\/)\s*CARGA\s*HORARIA/i.test(textoPagina) ||
-           !/CURSISTAS\s+INSCRITOS/i.test(textoPagina) ||
-           !/CURSISTAS\s+PRESENTES/i.test(textoPagina));
+          (!/DATA\s*(?:E|\/)\s*CARGA\s*HORARIA/.test(textoBusca) ||
+           !/CURSISTAS\s+INSCRITOS/.test(textoBusca) ||
+           !/CURSISTAS\s+PRESENTES/.test(textoBusca));
         if (worker && (textoPagina.trim().length < 80 || primeiraPaginaIncompleta)) {
           try {
             onProgresso?.(`Complementando leitura com OCR na página ${i}...`);
@@ -99,9 +100,10 @@ export async function lerConteudoArquivo(file: File, onProgresso?: (msg: string)
               await pagina.render({ canvas, canvasContext: context, viewport }).promise;
               const ocr = await worker.recognize(canvas);
               const textoOCR = ocr?.data?.text || '';
+              const ocrBusca = textoOCR.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
               const ocrTemCamposCentrais =
-                /DATA\s*(?:E|\/)\s*CARGA\s*HORARIA/i.test(textoOCR) &&
-                /CURSISTAS\s+INSCRITOS/i.test(textoOCR);
+                /DATA\s*(?:E|\/)\s*CARGA\s*HORARIA/.test(ocrBusca) &&
+                /CURSISTAS\s+INSCRITOS/.test(ocrBusca);
               if (textoOCR.trim().length > textoPagina.trim().length ||
                   (primeiraPaginaIncompleta && ocrTemCamposCentrais)) {
                 textoPagina = textoOCR;
