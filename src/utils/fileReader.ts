@@ -49,9 +49,9 @@ function reconstruirLinhasPDF(items: any[]): string {
 
   return linhas
     .sort((a, b) => b.y - a.y)
-    .map(l => l.itens.sort((a, b) => a.x - b.x).map(item => item.texto).join(' ').replace(/\\s+/g, ' ').trim())
+    .map(l => l.itens.sort((a, b) => a.x - b.x).map(item => item.texto).join(' ').replace(/\s+/g, ' ').trim())
     .filter(Boolean)
-    .join('\\n');
+    .join('\n');
 }
 
 async function criarWorkerOCR() {
@@ -84,9 +84,9 @@ export async function lerConteudoArquivo(file: File, onProgresso?: (msg: string)
 
         // OCR em páginas escaneadas ou quando faltam os rótulos centrais do formulário.
         const primeiraPaginaIncompleta = i === 1 &&
-          (!/DATA\\s*(?:E|\\/)\\s*CARGA\\s*HORARIA/i.test(textoPagina) ||
-           !/CURSISTAS\\s+INSCRITOS/i.test(textoPagina) ||
-           !/CURSISTAS\\s+PRESENTES/i.test(textoPagina));
+          (!/DATA\s*(?:E|\/)\s*CARGA\s*HORARIA/i.test(textoPagina) ||
+           !/CURSISTAS\s+INSCRITOS/i.test(textoPagina) ||
+           !/CURSISTAS\s+PRESENTES/i.test(textoPagina));
         if (worker && (textoPagina.trim().length < 80 || primeiraPaginaIncompleta)) {
           try {
             onProgresso?.(`Complementando leitura com OCR na página ${i}...`);
@@ -100,8 +100,8 @@ export async function lerConteudoArquivo(file: File, onProgresso?: (msg: string)
               const ocr = await worker.recognize(canvas);
               const textoOCR = ocr?.data?.text || '';
               const ocrTemCamposCentrais =
-                /DATA\\s*(?:E|\\/)\\s*CARGA\\s*HORARIA/i.test(textoOCR) &&
-                /CURSISTAS\\s+INSCRITOS/i.test(textoOCR);
+                /DATA\s*(?:E|\/)\s*CARGA\s*HORARIA/i.test(textoOCR) &&
+                /CURSISTAS\s+INSCRITOS/i.test(textoOCR);
               if (textoOCR.trim().length > textoPagina.trim().length ||
                   (primeiraPaginaIncompleta && ocrTemCamposCentrais)) {
                 textoPagina = textoOCR;
@@ -112,14 +112,14 @@ export async function lerConteudoArquivo(file: File, onProgresso?: (msg: string)
           }
         }
 
-        if (textoPagina.trim()) paginas.push(`\\n--- PÁGINA ${i} ---\\n${textoPagina}`);
+        if (textoPagina.trim()) paginas.push(`\n--- PÁGINA ${i} ---\n${textoPagina}`);
       }
 
-      if (!paginas.length) return `Arquivo: ${file.name}\\nNão foi possível extrair texto deste PDF.`;
-      return paginas.join('\\n');
+      if (!paginas.length) return `Arquivo: ${file.name}\nNão foi possível extrair texto deste PDF.`;
+      return paginas.join('\n');
     } catch (erro) {
       console.error('Erro ao processar PDF:', erro);
-      return `Arquivo: ${file.name}\\nNão foi possível ler o conteúdo do PDF.`;
+      return `Arquivo: ${file.name}\nNão foi possível ler o conteúdo do PDF.`;
     } finally {
       if (worker) {
         try { await worker.terminate(); } catch (erro) { console.warn('Falha ao encerrar OCR:', erro); }
@@ -133,12 +133,12 @@ export async function lerConteudoArquivo(file: File, onProgresso?: (msg: string)
     try {
       onProgresso?.('Executando OCR em imagem...');
       worker = await criarWorkerOCR();
-      if (!worker) return `Arquivo: ${file.name}\\nNão foi possível iniciar o OCR.`;
+      if (!worker) return `Arquivo: ${file.name}\nNão foi possível iniciar o OCR.`;
       const resultado = await worker.recognize(url);
-      return resultado?.data?.text || `Arquivo: ${file.name}\\nNão foi possível extrair texto da imagem.`;
+      return resultado?.data?.text || `Arquivo: ${file.name}\nNão foi possível extrair texto da imagem.`;
     } catch (erro) {
       console.error('Erro no OCR da imagem:', erro);
-      return `Arquivo: ${file.name}\\nNão foi possível ler o conteúdo da imagem.`;
+      return `Arquivo: ${file.name}\nNão foi possível ler o conteúdo da imagem.`;
     } finally {
       URL.revokeObjectURL(url);
       if (worker) {
