@@ -93,9 +93,8 @@ function extrairAtividades(linhas: string[], textoCompleto: string): Array<{ dat
     linhasTabela = linhas.filter(l => /\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b/.test(l) && /(HORAS?|\bH\b|MANHA|TARDE|NOITE)/i.test(normalizar(l)));
   }
 
-  // Só completa o ano quando o documento inteiro apresenta um único ano explícito.
-  const anos = Array.from(new Set((textoCompleto.match(/\b20\d{2}\b/g) || [])));
-  const anoContexto = anos.length === 1 ? anos[0] : '';
+  // Só completa o ano quando a mesma data aparece explicitamente em outro trecho
+  // do documento (por exemplo, nas chamadas/listas de presença).
   const atividades: Array<{ data: string; ch: number | string; turno: string }> = [];
   const datasProcessadas = new Set<string>();
   const regexData = /\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b/g;
@@ -108,9 +107,13 @@ function extrairAtividades(linhas: string[], textoCompleto: string): Array<{ dat
       const dia = match[1].padStart(2, '0');
       const mes = match[2].padStart(2, '0');
       const anoInformado = match[3] || '';
+      const anosDaMesmaData = Array.from(new Set(
+        Array.from(textoCompleto.matchAll(new RegExp('\\\\b' + dia + '[/-]' + mes + '[/-](20\\\\d{2})\\\\b', 'g')))
+          .map(ocorrencia => ocorrencia[1])
+      ));
       const ano = anoInformado
         ? (anoInformado.length === 2 ? '20' + anoInformado : anoInformado)
-        : anoContexto;
+        : (anosDaMesmaData.length === 1 ? anosDaMesmaData[0] : '');
       const data = ano ? `${dia}/${mes}/${ano}` : `${dia}/${mes}`;
       if (datasProcessadas.has(data)) continue;
       datasProcessadas.add(data);
