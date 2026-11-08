@@ -204,17 +204,26 @@ function extrairAtividades(linhas: string[], textoCompleto: string): Atividade[]
 }
 
 /** Distingue relatórios mensais de anexos/fotografias isolados. */
-export function ehRelatorioProleei(textoBruto: string): boolean {
+export function ehRelatorioProleei(textoBruto: string, nomeArquivo: string = ''): boolean {
   const t = normalizar(textoBruto || '');
+  const nome = normalizar(nomeArquivo);
   const marcadores = [
     /NOME\s+DA\s+FORMADORA\s+MUNICIPAL/,
     /DATA\s*(?:E|\/)\s*CARGA\s*HORARIA\s+DO\s+ENCONTRO/,
     /NUMERO\s+TOTAL\s+DE\s+CURSISTAS\s+INSCRITOS/,
     /NUMERO\s+DE\s+CURSISTAS\s+PRESENTES/,
   ];
-  // O título sozinho também pode aparecer em anexos. Exigimos pelo menos
-  // dois campos estruturais para aceitar o documento como relatório.
-  return marcadores.filter(r => r.test(t)).length >= 2;
+  const quantidade = marcadores.filter(r => r.test(t)).length;
+  const anexoFotografico = /\bFOTOS?\b|REGISTROS?\s+FOTOGRAFICOS/.test(nome);
+
+  // Um arquivo identificado como conjunto de fotos só entra se também
+  // apresentar pelo menos dois campos estruturais do relatório.
+  if (anexoFotografico && quantidade < 2) return false;
+
+  // Relatórios com OCR parcial podem ser aceitos quando o título e ao menos
+  // um campo central foram reconhecidos. O título isolado não é suficiente.
+  return quantidade >= 2 ||
+    (/RELATORIO\s+MENSAL\s+DE\s+ATIVIDADES/.test(t) && quantidade >= 1);
 }
 
 export function extrairDados(textoBruto: string, nomeArquivo: string = '') {
