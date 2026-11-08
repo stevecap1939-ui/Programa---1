@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   extrairDados,
+  ehRelatorioProleei,
   gerarLinhasPlanilha,
   identificarPolo,
 } from './proleeiParser';
@@ -262,5 +263,96 @@ describe('geração das linhas da planilha', () => {
       'Nº de Presentes': '',
       'Faltas justificadas': '',
     });
+  });
+});
+
+
+describe('regressões com o texto extraído dos PDFs de março', () => {
+  it('Aceguá: preserva o nome real e não confunde 18h às 22h com carga horária', () => {
+    const texto = [
+      'RELATÓRIO MENSAL DE ATIVIDADES - FORMADOR(A) MUNICIPAL – ProLEEI RS',
+      'Identificação',
+      'Polo: Bagé',
+      'Município: Aceguá',
+      'Nome da Formadora Municipal: Lisiane T. Pradie Teixeira.',
+      'Data e Carga horária do encontro:',
+      'Data CH. Turno Horário',
+      '11/03/26 04 horas noite 18h às 22h',
+      '13/03/26 04 horas noite 18h às 22h',
+      'Local de realização do encontro: Formato online.',
+      'Participação',
+      'Número total de cursistas inscritos na turma: 08',
+      'Número de cursistas presentes no encontro:08',
+      'Houve faltas justificadas? (x) Sim (...) Não',
+      'Número de faltas justificadas: 1',
+      'Aceguá, 31 de março de 2026.'
+    ].join('\\n');
+
+    const dados = extrairDados(texto, 'ACEGUÁ - LISIANE TELES PRADIE TEIXEIRA RELATÓRIO_MARÇO_ProLEEI.pdf');
+    expect(dados).toMatchObject({
+      polo: 'Bagé',
+      municipio: 'Aceguá',
+      formadora: 'Lisiane T. Pradie Teixeira',
+      cursistas: 8,
+      presentes: 8,
+      faltas: 1,
+    });
+    expect(dados.atividades).toEqual([
+      { data: '11/03/2026', ch: 4, turno: 'Noite' },
+      { data: '13/03/2026', ch: 4, turno: 'Noite' },
+    ]);
+  });
+
+  it('Agudo: prioriza a duração em horas em vez do horário de relógio', () => {
+    const texto = [
+      'RELATÓRIO MENSAL DE ATIVIDADES - FORMADOR(A) MUNICIPAL – ProLEEI RS',
+      'Polo: Agudo',
+      'Município: Agudo',
+      'Nome da Formadora Municipal: Emanueli Unfer',
+      'Data e Carga horária do encontro:',
+      'Data CH. Turno Horário',
+      '11/03/2026 03 horas Noite 18h às 21h',
+      '12/03/2026 03 horas Noite 18h às 21h',
+      'Local de realização do encontro: Meet',
+      'Número total de cursistas inscritos na turma: 21',
+      'Número de cursistas presentes no encontro: 21',
+      'Houve faltas justificadas? (...) Sim (x) Não',
+      'Número de faltas justificadas: se houver – se a resposta for não escreva Não se aplica'
+    ].join('\\n');
+
+    const dados = extrairDados(texto, 'AGUDO - EMANUELI UNFER RELATÓRIO_FM_Março.pdf');
+    expect(dados.formadora).toBe('Emanueli Unfer');
+    expect(dados.atividades).toEqual([
+      { data: '11/03/2026', ch: 3, turno: 'Noite' },
+      { data: '12/03/2026', ch: 3, turno: 'Noite' },
+    ]);
+    expect(dados.faltas).toBe('Não se aplica');
+  });
+
+  it('não confunde o título FORMADOR(A) MUNICIPAL com o nome da formadora', () => {
+    const texto = [
+      'RELATÓRIO MENSAL DE ATIVIDADES - FORMADOR(A) MUNICIPAL – ProLEEI RS',
+      'Polo: Ijuí',
+      'Município: Ajuricaba',
+      'Nome da Formadora Municipal:',
+      'Mariane Uhde Picinin Ziotti Viana',
+      'Data e Carga horária do encontro:',
+      '10/03/2026 04 horas Manhã'
+    ].join('\\n');
+    expect(extrairDados(texto).formadora).toBe('Mariane Uhde Picinin Ziotti Viana');
+  });
+
+  it('reconhece anexos fotográficos isolados como não sendo relatórios', () => {
+    expect(ehRelatorioProleei('Anexo - Registros fotográficos do encontro')).toBe(false);
+    expect(ehRelatorioProleei('RELATÓRIO MENSAL DE ATIVIDADES - FORMADOR(A) MUNICIPAL')).toBe(true);
+  });
+
+  it('registra pendências de extração na observação, sem inventar dados', () => {
+    const linhas = gerarLinhasPlanilha(
+      extrairDados('RELATÓRIO MENSAL DE ATIVIDADES - ProLEEI\\nMunicípio: Aceguá'),
+      'Aceguá.pdf'
+    );
+    expect(linhas[0].OBSERVAÇÃO).toContain('Revisar extração');
+    expect(linhas[0].OBSERVAÇÃO).toContain('data do encontro');
   });
 });
