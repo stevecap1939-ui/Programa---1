@@ -9,7 +9,8 @@ import { EditRowModal } from './components/EditRowModal';
 import { 
   LinhaPlanilhaProLEEI, 
   extrairDados, 
-  gerarLinhasPlanilha 
+  gerarLinhasPlanilha,
+  ehRelatorioProleei
 } from './utils/proleeiParser';
 import { lerConteudoArquivo } from './utils/fileReader';
 import { 
@@ -112,6 +113,12 @@ export default function App() {
         // Antes, isso gerava linhas com dados ficticiamente "Não encontrado".
         if (/Não foi possível (?:ler o conteúdo|extrair texto)|Não foi possível iniciar o OCR/i.test(texto)) {
           erros.push(`${file.name}: Não foi possível ler o arquivo. Verifique se o PDF está íntegro ou se contém texto legível.`);
+          continue;
+        }
+
+        // Anexos fotográficos e PDFs auxiliares não devem virar linhas de relatório.
+        if (!ehRelatorioProleei(texto)) {
+          erros.push(`${file.name}: documento sem estrutura identificável de relatório ProLEEI; anexo não incluído.`);
           continue;
         }
 
