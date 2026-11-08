@@ -204,13 +204,14 @@ function extrairAtividades(linhas: string[], textoCompleto: string): Atividade[]
 /** Distingue relatórios mensais de anexos/fotografias isolados. */
 export function ehRelatorioProleei(textoBruto: string): boolean {
   const t = normalizar(textoBruto || '');
-  if (/RELATORIO\s+MENSAL\s+DE\s+ATIVIDADES/.test(t)) return true;
   const marcadores = [
     /NOME\s+DA\s+FORMADORA\s+MUNICIPAL/,
     /DATA\s*(?:E|\/)\s*CARGA\s*HORARIA\s+DO\s+ENCONTRO/,
     /NUMERO\s+TOTAL\s+DE\s+CURSISTAS\s+INSCRITOS/,
     /NUMERO\s+DE\s+CURSISTAS\s+PRESENTES/,
   ];
+  // O título sozinho também pode aparecer em anexos. Exigimos pelo menos
+  // dois campos estruturais para aceitar o documento como relatório.
   return marcadores.filter(r => r.test(t)).length >= 2;
 }
 
