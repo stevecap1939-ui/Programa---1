@@ -81,8 +81,7 @@ function extrairFaltas(linhas: string[]): number | string {
   const linhaResposta = linhas.find(l => normalizar(l).includes('HOUVE FALTAS JUSTIFICADAS'));
   if (linhaResposta) {
     const resposta = normalizar(linhaResposta);
-    const marcouNao = /\(\s*\.?\s*X\s*\.?\s*\)|\.X\.\./.test(resposta) &&
-      /\bNAO(?:\s+SE\s+APLICA)?\b/.test(resposta);
+    const marcouNao = /(?:\(\s*\.?\s*X\s*\.{0,2}\s*\)|\.X\.\.)\s*NAO\b/.test(resposta);
     if (marcouNao) return 'Não se aplica';
   }
 
@@ -153,7 +152,9 @@ function extrairAtividades(linhas: string[], textoCompleto: string): Atividade[]
     if (fim < 0) fim = linhas.length;
     linhasTabela = linhas.slice(inicio + 1, fim);
   } else {
-    linhasTabela = linhas;
+    // Sem a seção/tabela de encontros, não se deve capturar datas de assinatura,
+    // chamadas ou anexos como se fossem datas de formação.
+    linhasTabela = [];
   }
 
   const regexData = /\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b/g;
