@@ -26,6 +26,8 @@ function limparMunicipio(municipioRaw: string): string {
   if (!municipioRaw) return '';
   let mun = municipioRaw.replace(/[-–]\s*RS$/i, '').trim();
   mun = mun.replace(/\bRS\b/gi, '').trim();
+  // Correção pontual de erro recorrente de OCR no nome oficial do município.
+  if (normalizar(mun) === 'ALECRIN') return 'Alecrim';
   return mun.toLowerCase().split(/\s+/).map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 }
 
