@@ -214,7 +214,7 @@ export function ehRelatorioProleei(textoBruto: string, nomeArquivo: string = '')
     /NUMERO\s+DE\s+CURSISTAS\s+PRESENTES/,
   ];
   const quantidade = marcadores.filter(r => r.test(t)).length;
-  const anexoFotografico = /\bFOTOS?\b|REGISTROS?\s+FOTOGRAFICOS/.test(nome);
+  const anexoFotografico = /FOTOS?(?:_|\b)|REGISTROS?\s+FOTOGRAFICOS/.test(nome);
 
   // Um arquivo identificado como conjunto de fotos só entra se também
   // apresentar pelo menos dois campos estruturais do relatório.
