@@ -329,6 +329,12 @@ describe('regressões com o texto extraído dos PDFs de março', () => {
     expect(dados.faltas).toBe('Não se aplica');
   });
 
+  it('corrige a leitura OCR recorrente de Alecrim', () => {
+    const dados = extrairDados('Polo: Santa Rosa\nMunicípio: Alecrin');
+    expect(dados.municipio).toBe('Alecrim');
+    expect(dados.polo).toBe('Santa Rosa');
+  });
+
   it('não confunde o título FORMADOR(A) MUNICIPAL com o nome da formadora', () => {
     const texto = [
       'RELATÓRIO MENSAL DE ATIVIDADES - FORMADOR(A) MUNICIPAL – ProLEEI RS',
