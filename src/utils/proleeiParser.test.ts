@@ -286,7 +286,7 @@ describe('regressões com o texto extraído dos PDFs de março', () => {
       'Houve faltas justificadas? (x) Sim (...) Não',
       'Número de faltas justificadas: 1',
       'Aceguá, 31 de março de 2026.'
-    ].join('\\n');
+    ].join('\n');
 
     const dados = extrairDados(texto, 'ACEGUÁ - LISIANE TELES PRADIE TEIXEIRA RELATÓRIO_MARÇO_ProLEEI.pdf');
     expect(dados).toMatchObject({
@@ -318,7 +318,7 @@ describe('regressões com o texto extraído dos PDFs de março', () => {
       'Número de cursistas presentes no encontro: 21',
       'Houve faltas justificadas? (...) Sim (x) Não',
       'Número de faltas justificadas: se houver – se a resposta for não escreva Não se aplica'
-    ].join('\\n');
+    ].join('\n');
 
     const dados = extrairDados(texto, 'AGUDO - EMANUELI UNFER RELATÓRIO_FM_Março.pdf');
     expect(dados.formadora).toBe('Emanueli Unfer');
@@ -338,7 +338,7 @@ describe('regressões com o texto extraído dos PDFs de março', () => {
       'Mariane Uhde Picinin Ziotti Viana',
       'Data e Carga horária do encontro:',
       '10/03/2026 04 horas Manhã'
-    ].join('\\n');
+    ].join('\n');
     expect(extrairDados(texto).formadora).toBe('Mariane Uhde Picinin Ziotti Viana');
   });
 
@@ -349,7 +349,7 @@ describe('regressões com o texto extraído dos PDFs de março', () => {
 
   it('registra pendências de extração na observação, sem inventar dados', () => {
     const linhas = gerarLinhasPlanilha(
-      extrairDados('RELATÓRIO MENSAL DE ATIVIDADES - ProLEEI\\nMunicípio: Aceguá'),
+      extrairDados('RELATÓRIO MENSAL DE ATIVIDADES - ProLEEI\nMunicípio: Aceguá'),
       'Aceguá.pdf'
     );
     expect(linhas[0].OBSERVAÇÃO).toContain('Revisar extração');
