@@ -56,7 +56,12 @@ function extrairNumeroEmLinha(linhas: string[], padraoRotulo: RegExp): number | 
 
 function extrairFaltas(linhas: string[]): number | string {
   const linhaResposta = linhas.find(l => normalizar(l).includes('HOUVE FALTAS JUSTIFICADAS'));
-  if (linhaResposta && /\(\s*x\s*\)\s*NAO\b/.test(normalizar(linhaResposta))) return 'Não se aplica';
+  if (linhaResposta) {
+    const resposta = normalizar(linhaResposta);
+    // Os formulários reais usam tanto "(x) Não" quanto "(.x..) Não se aplica".
+    const marcouNao = /(?:\(\s*\.?\s*X\s*\.{0,2}\s*\)|\.X\.\.)\s*NAO\b/.test(resposta);
+    if (marcouNao) return 'Não se aplica';
+  }
 
   const indice = linhas.findIndex(l => /NUMERO\s+DE\s+FALTAS\s+JUSTIFICADAS/.test(normalizar(l)));
   if (indice < 0) return 'Não encontrado';
@@ -75,7 +80,7 @@ function extrairFaltas(linhas: string[]): number | string {
   return 'Não encontrado';
 }
 
-function extrairAtividades(linhas: string[]): Array<{ data: string; ch: number | string; turno: string }> {
+function extrairAtividades(linhas: string[], textoCompleto: string): Array<{ data: string; ch: number | string; turno: string }> {
   const inicio = linhas.findIndex(l => /DATA\s*(?:E|\/)\s*CARGA\s*HORARIA\s+DO\s+ENCONTRO|DATAS\s+DOS\s+ENCONTROS/i.test(normalizar(l)));
   let linhasTabela: string[];
 
@@ -85,25 +90,39 @@ function extrairAtividades(linhas: string[]): Array<{ data: string; ch: number |
     if (fim < 0) fim = linhas.length;
     linhasTabela = linhas.slice(inicio, fim);
   } else {
-    linhasTabela = linhas.filter(l => /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/.test(l) && /(HORAS?|\bH\b|MANHA|TARDE|NOITE)/i.test(normalizar(l)));
+    linhasTabela = linhas.filter(l => /\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b/.test(l) && /(HORAS?|\bH\b|MANHA|TARDE|NOITE)/i.test(normalizar(l)));
   }
 
+  // Só completa o ano quando o documento inteiro apresenta um único ano explícito.
+  const anos = Array.from(new Set((textoCompleto.match(/\b20\d{2}\b/g) || [])));
+  const anoContexto = anos.length === 1 ? anos[0] : '';
   const atividades: Array<{ data: string; ch: number | string; turno: string }> = [];
   const datasProcessadas = new Set<string>();
-  const regexData = /\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b/g;
+  const regexData = /\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b/g;
 
-  for (const linha of linhasTabela) {
+  for (let i = 0; i < linhasTabela.length; i++) {
+    const linha = linhasTabela[i];
     regexData.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = regexData.exec(linha)) !== null) {
       const dia = match[1].padStart(2, '0');
       const mes = match[2].padStart(2, '0');
-      const ano = match[3].length === 2 ? '20' + match[3] : match[3];
-      const data = `${dia}/${mes}/${ano}`;
+      const anoInformado = match[3] || '';
+      const ano = anoInformado
+        ? (anoInformado.length === 2 ? '20' + anoInformado : anoInformado)
+        : anoContexto;
+      const data = ano ? `${dia}/${mes}/${ano}` : `${dia}/${mes}`;
       if (datasProcessadas.has(data)) continue;
       datasProcessadas.add(data);
 
-      const contextoLinha = linha.slice(0, match.index) + ' ' + linha.slice(match.index + match[0].length);
+      // Em alguns PDFs os valores aparecem na mesma linha da data; em outros,
+      // a extração de texto os separa em linhas consecutivas da mesma tabela.
+      const proximasLinhas: string[] = [];
+      for (let j = i; j < Math.min(linhasTabela.length, i + 5); j++) {
+        if (j > i && /\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b/.test(linhasTabela[j])) break;
+        proximasLinhas.push(linhasTabela[j]);
+      }
+      const contextoLinha = proximasLinhas.join(' ').replace(linha, linha.replace(match[0], ' '));
       const chMatch = contextoLinha.match(/\b(\d+(?:[.,]\d+)?)\s*(?:horas?|h)\b/i);
       const ch: number | string = chMatch ? Number(chMatch[1].replace(',', '.')) : 'Não encontrado';
       const turnoNormalizado = normalizar(contextoLinha);
@@ -117,7 +136,6 @@ function extrairAtividades(linhas: string[]): Array<{ data: string; ch: number |
 
   return atividades.length ? atividades : [{ data: 'Não encontrado', ch: 'Não encontrado', turno: 'Não encontrado' }];
 }
-
 export function extrairDados(textoBruto: string, nomeArquivo: string = '') {
   const texto = textoBruto || '';
   const linhas = texto.split(/\r?\n/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
@@ -155,7 +173,7 @@ export function extrairDados(textoBruto: string, nomeArquivo: string = '') {
   const cursistas = extrairNumeroEmLinha(linhas, /(?:NUMERO\s+TOTAL\s+DE\s+CURSISTAS\s+INSCRITOS|TOTAL\s+DE\s+CURSISTAS\s+INSCRITOS|CURSISTAS\s+INSCRITOS\s+NA\s+TURMA|INSCRITOS\s+NA\s+TURMA|TOTAL\s+DE\s+INSCRITOS)/);
   const presentes = extrairNumeroEmLinha(linhas, /(?:NUMERO\s+DE\s+CURSISTAS\s+PRESENTES\s+NO\s+ENCONTRO|CURSISTAS\s+PRESENTES\s+NO\s+ENCONTRO|PRESENTES\s+NO\s+ENCONTRO|CURSISTAS\s+PRESENTES)/);
   const faltas = extrairFaltas(linhas);
-  const atividades = extrairAtividades(linhas);
+  const atividades = extrairAtividades(linhas, texto);
 
   return { polo: poloFinal, municipio: municipioFinal, formadora: formadoraFinal, cursistas, presentes, faltas, atividades };
 }
