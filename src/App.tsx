@@ -137,11 +137,19 @@ export default function App() {
       }
     }
 
+    if (erros.length > 0) {
+      console.warn('Arquivos que precisam de revisão ou foram ignorados:', erros);
+    }
+
     if (novasLinhas.length > 0) {
       setLinhas(prev => [...novasLinhas, ...prev]);
-      mostrarNotificacao(`${arquivosSucesso} arquivo(s) lidos com sucesso! ${novasLinhas.length} novos encontros adicionados.`, 'sucesso');
+      const resumo = `${arquivosSucesso} arquivo(s) lidos; ${novasLinhas.length} encontro(s) adicionados.`;
+      mostrarNotificacao(
+        erros.length > 0 ? `${resumo} ${erros.length} arquivo(s) ignorados ou com falha. Primeiro caso: ${erros[0]}` : resumo,
+        erros.length > 0 ? 'aviso' : 'sucesso'
+      );
     } else if (erros.length > 0) {
-      mostrarNotificacao(`Nenhum dado válido extraído. ${erros[0]}`, 'aviso');
+      mostrarNotificacao(`Nenhum relatório válido foi incluído. ${erros.length} arquivo(s) precisam de revisão. Primeiro caso: ${erros[0]}`, 'aviso');
     }
 
     setIsProcessing(false);
