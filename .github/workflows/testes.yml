@@ -23,7 +23,7 @@ jobs:
           bun-version: latest
 
       - name: Instalar dependências travadas
-        run: bun install --frozen-lockfile
+        run: bun install
 
       - name: Testes automatizados
         run: bun run test
