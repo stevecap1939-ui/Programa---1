@@ -51,7 +51,8 @@ export function identificarPolo(municipio: string): string {
 function extrairValorRotulo(linhas: string[], rotulo: RegExp): string {
   for (let i = 0; i < linhas.length; i++) {
     const linha = linhas[i];
-    const match = linha.match(rotulo);
+    const linhaNormalizada = normalizar(linha);
+    const match = linhaNormalizada.match(rotulo);
     if (!match || match.index === undefined) continue;
     const valor = linha.slice(match.index + match[0].length).replace(/^\s*[:\-–]?\s*/, '').trim();
     if (valor) return valor;
