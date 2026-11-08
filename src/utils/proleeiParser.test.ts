@@ -344,7 +344,7 @@ describe('regressões com o texto extraído dos PDFs de março', () => {
 
   it('reconhece anexos fotográficos isolados como não sendo relatórios', () => {
     expect(ehRelatorioProleei('Anexo - Registros fotográficos do encontro')).toBe(false);
-    expect(ehRelatorioProleei('RELATÓRIO MENSAL DE ATIVIDADES - FORMADOR(A) MUNICIPAL\\nNome da Formadora Municipal: Ana\\nData e Carga horária do encontro:')).toBe(true);
+    expect(ehRelatorioProleei('RELATÓRIO MENSAL DE ATIVIDADES - FORMADOR(A) MUNICIPAL\nNome da Formadora Municipal: Ana\nData e Carga horária do encontro:')).toBe(true);
   });
 
   it('registra pendências de extração na observação, sem inventar dados', () => {
