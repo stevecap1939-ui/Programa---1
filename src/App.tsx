@@ -117,7 +117,7 @@ export default function App() {
         }
 
         // Anexos fotográficos e PDFs auxiliares não devem virar linhas de relatório.
-        if (!ehRelatorioProleei(texto)) {
+        if (!ehRelatorioProleei(texto, file.name)) {
           erros.push(`${file.name}: documento sem estrutura identificável de relatório ProLEEI; anexo não incluído.`);
           continue;
         }
