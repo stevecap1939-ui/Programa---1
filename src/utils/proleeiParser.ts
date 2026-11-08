@@ -108,8 +108,9 @@ function extrairAtividades(linhas: string[], textoCompleto: string): Array<{ dat
       const mes = match[2].padStart(2, '0');
       const anoInformado = match[3] || '';
       const anosDaMesmaData = Array.from(new Set(
-        Array.from(textoCompleto.matchAll(new RegExp('\\\\b' + dia + '[/-]' + mes + '[/-](20\\\\d{2})\\\\b', 'g')))
-          .map(ocorrencia => ocorrencia[1])
+        Array.from(textoCompleto.matchAll(/\b(\d{2})[/-](\d{2})[/-](20\d{2})\b/g))
+          .filter(ocorrencia => ocorrencia[1] === dia && ocorrencia[2] === mes)
+          .map(ocorrencia => ocorrencia[3])
       ));
       const ano = anoInformado
         ? (anoInformado.length === 2 ? '20' + anoInformado : anoInformado)
