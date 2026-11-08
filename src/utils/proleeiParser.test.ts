@@ -122,6 +122,115 @@ describe('extração dos relatórios ProLEEI', () => {
   });
 });
 
+describe('regressões com estrutura dos relatórios reais de março', () => {
+  it('Agudo: lê datas, carga horária, turno e resposta marcada Não', () => {
+    const texto = [
+      'RELATÓRIO MENSAL DE ATIVIDADES - ProLEEI RS',
+      'Polo: Agudo',
+      'Município: Agudo',
+      'Nome da Formadora Municipal: Emanueli Unfer',
+      'Data e Carga horária do encontro: 11 e 12 de março de 2026',
+      'Data',
+      'CH.',
+      'Turno',
+      '11/03/2026',
+      '03 horas',
+      'Noite',
+      '12/03/2026',
+      '03 horas',
+      'Noite',
+      'Local de realização do encontro: Meet',
+      'Número total de cursistas inscritos na turma: 21',
+      'Número de cursistas presentes no encontro: 21',
+      'Houve faltas justificadas? (...) Sim   (x) Não',
+      'Número de faltas justificadas: se houver – se a resposta for não escreva Não se aplica',
+      'Agudo, 28 dia março de 2026.'
+    ].join('\n');
+
+    const dados = extrairDados(texto, 'AGUDO - EMANUELI UNFER RELATÓRIO.pdf');
+    expect(dados.atividades).toEqual([
+      { data: '11/03/2026', ch: 3, turno: 'Noite' },
+      { data: '12/03/2026', ch: 3, turno: 'Noite' },
+    ]);
+    expect(dados.faltas).toBe('Não se aplica');
+  });
+
+  it('Aceguá: reconhece ano com dois dígitos e total explícito de faltas', () => {
+    const texto = [
+      'Polo: Bagé',
+      'Município: Aceguá',
+      'Nome da Formadora Municipal: Lisiane T. Pradie Teixeira.',
+      'Data e Carga horária do encontro:',
+      'Data',
+      'CH.',
+      'Turno',
+      '11/03/26',
+      '04 horas',
+      'noite',
+      '13/03/26',
+      '04 horas',
+      'noite',
+      'Local de realização do encontro: Formato online.',
+      'Número total de cursistas inscritos na turma: 08',
+      'Número de cursistas presentes no encontro: 08',
+      'Houve faltas justificadas? (x) Sim (...) Não',
+      'Número de faltas justificadas: 1',
+      'Aceguá, 31 de março de 2026.'
+    ].join('\n');
+
+    const dados = extrairDados(texto, 'ACEGUÁ - LISIANE TELES PRADIE TEIXEIRA.pdf');
+    expect(dados.atividades).toEqual([
+      { data: '11/03/2026', ch: 4, turno: 'Noite' },
+      { data: '13/03/2026', ch: 4, turno: 'Noite' },
+    ]);
+    expect(dados.faltas).toBe(1);
+  });
+
+  it('Alecrim: infere 2026 porque o documento contém um único ano explícito', () => {
+    const texto = [
+      'Polo: Santa Rosa- TURMA 1-',
+      'Município: Alecrim',
+      'Nome da Formadora Municipal: Deisi Marilei Back',
+      'Data e Carga horária do encontro:',
+      'Data',
+      'CH.',
+      'Turno',
+      '09/03',
+      '02 horas',
+      'Noite',
+      '12/03',
+      '02 horas',
+      'Noite',
+      'Local de realização: MEET',
+      'Número total de cursistas inscritos na turma: 10',
+      'Número de cursistas presentes no encontro: 10',
+      'Houve faltas justificadas? (...) Sim   (.x..) Não se aplica',
+      'CHAMADA 09/03/2026',
+      'CHAMADA 12/03/2026',
+      'Alecrim, 12 de março de 2026.'
+    ].join('\n');
+
+    const dados = extrairDados(texto, 'ALECRIM - DEISI MARILEI BACK RELATÓRIO.pdf');
+    expect(dados.atividades).toEqual([
+      { data: '09/03/2026', ch: 2, turno: 'Noite' },
+      { data: '12/03/2026', ch: 2, turno: 'Noite' },
+    ]);
+    expect(dados.faltas).toBe('Não se aplica');
+  });
+
+  it('não inventa o ano quando o documento apresenta anos conflitantes', () => {
+    const texto = [
+      'Data e Carga horária do encontro:',
+      '09/03',
+      '02 horas',
+      'Noite',
+      'Local de realização:',
+      'Referência de 2025 e assinatura em 2026.'
+    ].join('\n');
+    expect(extrairDados(texto).atividades[0].data).toBe('09/03');
+  });
+});
+
 describe('geração das linhas da planilha', () => {
   it('registra os totais gerais somente na primeira linha do relatório', () => {
     const texto = [
