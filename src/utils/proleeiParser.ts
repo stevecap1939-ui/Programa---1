@@ -15,6 +15,8 @@ export interface LinhaPlanilhaProLEEI {
   Arquivo_Origem: string;
 }
 
+type Atividade = { data: string; ch: number | string; turno: string };
+
 function normalizar(texto: string): string {
   if (!texto) return '';
   return texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
@@ -24,7 +26,16 @@ function limparMunicipio(municipioRaw: string): string {
   if (!municipioRaw) return '';
   let mun = municipioRaw.replace(/[-–]\s*RS$/i, '').trim();
   mun = mun.replace(/\bRS\b/gi, '').trim();
-  return mun.toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+  // Correção pontual de erro recorrente de OCR no nome oficial do município.
+  if (normalizar(mun) === 'ALECRIN') return 'Alecrim';
+  return mun.toLowerCase().split(/\s+/).map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+}
+
+function limparPolo(poloRaw: string): string {
+  return poloRaw
+    .replace(/\s*[-–]?\s*TURMA\s*\d+\s*[-–]?\s*$/i, '')
+    .replace(/\s*[-–]\s*RS$/i, '')
+    .trim();
 }
 
 export function identificarPolo(municipio: string): string {
@@ -37,6 +48,20 @@ export function identificarPolo(municipio: string): string {
     }
   }
   return 'Não encontrado';
+}
+
+function extrairValorRotulo(linhas: string[], rotulo: RegExp): string {
+  for (let i = 0; i < linhas.length; i++) {
+    const linha = linhas[i];
+    const linhaNormalizada = normalizar(linha);
+    const match = linhaNormalizada.match(rotulo);
+    if (!match || match.index === undefined) continue;
+    const valor = linha.slice(match.index + match[0].length).replace(/^\s*[:\-–]?\s*/, '').trim();
+    if (valor) return valor;
+    const proxima = (linhas[i + 1] || '').trim();
+    if (proxima && !/^(POLO|MUNICIPIO|IDENTIFICACAO|PARTICIPACAO)\b/i.test(normalizar(proxima))) return proxima;
+  }
+  return '';
 }
 
 function extrairNumeroEmLinha(linhas: string[], padraoRotulo: RegExp): number | string {
@@ -56,7 +81,11 @@ function extrairNumeroEmLinha(linhas: string[], padraoRotulo: RegExp): number | 
 
 function extrairFaltas(linhas: string[]): number | string {
   const linhaResposta = linhas.find(l => normalizar(l).includes('HOUVE FALTAS JUSTIFICADAS'));
-  if (linhaResposta && /\(\s*x\s*\)\s*NAO\b/.test(normalizar(linhaResposta))) return 'Não se aplica';
+  if (linhaResposta) {
+    const resposta = normalizar(linhaResposta);
+    const marcouNao = /(?:\(\s*\.?\s*X\s*\.{0,2}\s*\)|\.X\.\.)\s*NAO\b/.test(resposta);
+    if (marcouNao) return 'Não se aplica';
+  }
 
   const indice = linhas.findIndex(l => /NUMERO\s+DE\s+FALTAS\s+JUSTIFICADAS/.test(normalizar(l)));
   if (indice < 0) return 'Não encontrado';
@@ -75,89 +104,190 @@ function extrairFaltas(linhas: string[]): number | string {
   return 'Não encontrado';
 }
 
-function extrairAtividades(linhas: string[]): Array<{ data: string; ch: number | string; turno: string }> {
-  const inicio = linhas.findIndex(l => /DATA\s*(?:E|\/)\s*CARGA\s*HORARIA\s+DO\s+ENCONTRO|DATAS\s+DOS\s+ENCONTROS/i.test(normalizar(l)));
+function formatarData(match: RegExpExecArray, textoCompleto: string): string {
+  const dia = match[1].padStart(2, '0');
+  const mes = match[2].padStart(2, '0');
+  const anoInformado = match[3] || '';
+  const anosDaMesmaData = Array.from(new Set(
+    Array.from(textoCompleto.matchAll(/\b(\d{2})[/-](\d{2})[/-](20\d{2})\b/g))
+      .filter(ocorrencia => ocorrencia[1] === dia && ocorrencia[2] === mes)
+      .map(ocorrencia => ocorrencia[3])
+  ));
+  const ano = anoInformado
+    ? (anoInformado.length === 2 ? '20' + anoInformado : anoInformado)
+    : (anosDaMesmaData.length === 1 ? anosDaMesmaData[0] : '');
+  return ano ? `${dia}/${mes}/${ano}` : `${dia}/${mes}`;
+}
+
+function extrairCargaHoraria(contexto: string): number | string {
+  // Primeiro remove horários de relógio (ex.: 18h às 22h), que nunca são duração.
+  const semFaixasDeHorario = normalizar(contexto).replace(
+    /\b\d{1,2}(?::\d{2})?\s*H\s*(?:AS|ATE|[-–])\s*\d{1,2}(?::\d{2})?\s*H?\b/g,
+    ' '
+  );
+  const horasExplicitas = semFaixasDeHorario.match(/\b(\d+(?:[.,]\d+)?)\s*HORAS?\b/);
+  if (horasExplicitas) return Number(horasExplicitas[1].replace(',', '.'));
+
+  const horasAbreviadas = semFaixasDeHorario.match(/\b(\d+(?:[.,]\d+)?)\s*H\b/);
+  if (horasAbreviadas) return Number(horasAbreviadas[1].replace(',', '.'));
+  return 'Não encontrado';
+}
+
+function extrairTurno(contexto: string): string {
+  const t = normalizar(contexto);
+  const manha = /\bMANHA\b/.test(t);
+  const tarde = /\bTARDE\b/.test(t);
+  const noite = /\bNOITE\b/.test(t);
+  const turnos = [manha ? 'Manhã' : '', tarde ? 'Tarde' : '', noite ? 'Noite' : ''].filter(Boolean);
+  return turnos.length ? turnos.join(' e ') : 'Não encontrado';
+}
+
+function extrairAtividades(linhas: string[], textoCompleto: string): Atividade[] {
+  const inicio = linhas.findIndex(l =>
+    /DATA\s*(?:E|\/)\s*CARGA\s*HORARIA\s+DO\s+ENCONTRO|DATAS\s+DOS\s+ENCONTROS/.test(normalizar(l))
+  );
   let linhasTabela: string[];
 
   if (inicio >= 0) {
     let fim = linhas.findIndex((l, i) => i > inicio &&
-      /LOCAL\s+DE\s+REALIZACAO|^\s*PARTICIPACAO\b|REGISTROS\s+DAS\s+ATIVIDADES|^\s*AVALIACAO\b/i.test(normalizar(l)));
+      /LOCAL\s+DE\s+REALIZACAO|^PARTICIPACAO\b|REGISTROS\s+DAS\s+ATIVIDADES|^AVALIACAO\b/.test(normalizar(l)));
     if (fim < 0) fim = linhas.length;
-    linhasTabela = linhas.slice(inicio, fim);
+    linhasTabela = linhas.slice(inicio + 1, fim);
   } else {
-    linhasTabela = linhas.filter(l => /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/.test(l) && /(HORAS?|\bH\b|MANHA|TARDE|NOITE)/i.test(normalizar(l)));
+    // Sem a seção/tabela de encontros, não se deve capturar datas de assinatura,
+    // chamadas ou anexos como se fossem datas de formação.
+    linhasTabela = [];
   }
 
-  const atividades: Array<{ data: string; ch: number | string; turno: string }> = [];
+  const regexData = /\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b/g;
+  const atividades: Atividade[] = [];
   const datasProcessadas = new Set<string>();
-  const regexData = /\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b/g;
 
-  for (const linha of linhasTabela) {
+  for (let i = 0; i < linhasTabela.length; i++) {
+    const linha = linhasTabela[i];
     regexData.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = regexData.exec(linha)) !== null) {
-      const dia = match[1].padStart(2, '0');
-      const mes = match[2].padStart(2, '0');
-      const ano = match[3].length === 2 ? '20' + match[3] : match[3];
-      const data = `${dia}/${mes}/${ano}`;
+    const matches = Array.from(linha.matchAll(regexData));
+    if (!matches.length) continue;
+
+    for (let m = 0; m < matches.length; m++) {
+      const match = matches[m] as RegExpExecArray;
+      const data = formatarData(match, textoCompleto);
       if (datasProcessadas.has(data)) continue;
       datasProcessadas.add(data);
 
-      const contextoLinha = linha.slice(0, match.index) + ' ' + linha.slice(match.index + match[0].length);
-      const chMatch = contextoLinha.match(/\b(\d+(?:[.,]\d+)?)\s*(?:horas?|h)\b/i);
-      const ch: number | string = chMatch ? Number(chMatch[1].replace(',', '.')) : 'Não encontrado';
-      const turnoNormalizado = normalizar(contextoLinha);
-      let turno = 'Não encontrado';
-      if (/\bMANHA\b/.test(turnoNormalizado)) turno = 'Manhã';
-      else if (/\bTARDE\b/.test(turnoNormalizado)) turno = 'Tarde';
-      else if (/\bNOITE\b/.test(turnoNormalizado)) turno = 'Noite';
-      atividades.push({ data, ch, turno });
+      // Cada encontro recebe somente o conteúdo até a próxima data da tabela.
+      const partes: string[] = [];
+      const inicioConteudo = (match.index || 0) + match[0].length;
+      const fimConteudo = m + 1 < matches.length ? (matches[m + 1].index || linha.length) : linha.length;
+      partes.push(linha.slice(inicioConteudo, fimConteudo));
+      for (let j = i + 1; j < linhasTabela.length; j++) {
+        if (regexData.test(linhasTabela[j])) {
+          regexData.lastIndex = 0;
+          break;
+        }
+        regexData.lastIndex = 0;
+        partes.push(linhasTabela[j]);
+      }
+
+      const contexto = partes.join(' ');
+      atividades.push({
+        data,
+        ch: extrairCargaHoraria(contexto),
+        turno: extrairTurno(contexto),
+      });
     }
   }
 
-  return atividades.length ? atividades : [{ data: 'Não encontrado', ch: 'Não encontrado', turno: 'Não encontrado' }];
+  return atividades.length
+    ? atividades
+    : [{ data: 'Não encontrado', ch: 'Não encontrado', turno: 'Não encontrado' }];
+}
+
+/** Distingue relatórios mensais de anexos/fotografias isolados. */
+export function ehRelatorioProleei(textoBruto: string, nomeArquivo: string = ''): boolean {
+  const t = normalizar(textoBruto || '');
+  const nome = normalizar(nomeArquivo);
+  const marcadores = [
+    /NOME\s+DA\s+FORMADORA\s+MUNICIPAL/,
+    /DATA\s*(?:E|\/)\s*CARGA\s*HORARIA\s+DO\s+ENCONTRO/,
+    /NUMERO\s+TOTAL\s+DE\s+CURSISTAS\s+INSCRITOS/,
+    /NUMERO\s+DE\s+CURSISTAS\s+PRESENTES/,
+  ];
+  const quantidade = marcadores.filter(r => r.test(t)).length;
+  const anexoFotografico = /FOTOS?(?:_|\b)|REGISTROS?\s+FOTOGRAFICOS/.test(nome);
+
+  // Um arquivo identificado como conjunto de fotos só entra se também
+  // apresentar pelo menos dois campos estruturais do relatório.
+  if (anexoFotografico && quantidade < 2) return false;
+
+  // Relatórios com OCR parcial podem ser aceitos quando o título e ao menos
+  // um campo central foram reconhecidos. O título isolado não é suficiente.
+  return quantidade >= 2 ||
+    (/RELATORIO\s+MENSAL\s+DE\s+ATIVIDADES/.test(t) && quantidade >= 1);
 }
 
 export function extrairDados(textoBruto: string, nomeArquivo: string = '') {
   const texto = textoBruto || '';
   const linhas = texto.split(/\r?\n/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
 
-  // Identificação: lógica preservada para Polo, Município e Formadora.
-  let municipio = '';
-  const munMatch = texto.match(/(?:Município|Municipio)\s*[:\-]?\s*([^\n\r]+)/i);
-  if (munMatch) municipio = limparMunicipio(munMatch[1]);
+  const municipioRaw = extrairValorRotulo(linhas, /^MUNICIPIO\s*:?/i);
+  let municipio = municipioRaw ? limparMunicipio(municipioRaw) : '';
   if ((!municipio || municipio === 'Rs') && nomeArquivo) {
-    const partes = nomeArquivo.split(/[-–_]/);
-    if (partes.length > 0) municipio = limparMunicipio(partes[0]);
+    const prefixo = nomeArquivo.replace(/\.pdf$/i, '').split(/\s[-–]\s/)[0];
+    municipio = limparMunicipio(prefixo);
   }
-  const municipioFinal = (municipio && municipio.length > 1) ? municipio : 'Não encontrado';
+  const municipioFinal = municipio && municipio.length > 1 ? municipio : 'Não encontrado';
 
-  let polo = '';
-  const poloMatch = texto.match(/Polo\s*[:\-]?\s*([^\n\r]+)/i);
-  if (poloMatch) polo = poloMatch[1].trim().replace(/[-–]\s*RS$/i, '');
-  const poloFinal = (polo && polo !== 'RS') ? polo : identificarPolo(municipioFinal);
+  const poloRaw = extrairValorRotulo(linhas, /^POLO\s*:?/i);
+  const polo = limparPolo(poloRaw);
+  const poloFinal = polo && normalizar(polo) !== 'RS' ? polo : identificarPolo(municipioFinal);
 
-  let formadora = '';
-  const formMatch = texto.match(/(?:Formadora\s*Municipal|Formadora|Formador)\s*[:\-]?\s*([^\n\r]+)/i);
-  if (formMatch) formadora = formMatch[1].replace(/RELATÓRIO.*$|RELATORIO.*$|Documento.*$|–.*$/gi, '').trim();
-  if ((!formadora || formadora.length < 3 || formadora.includes('_') || formadora.includes('.pdf')) && nomeArquivo) {
-    const partes = nomeArquivo.split(/[-–_]/);
+  // O título "FORMADOR(A) MUNICIPAL" não é o campo do nome.
+  // Só aceitamos rótulos de identificação explícitos, preferencialmente com dois-pontos.
+  let formadoraRaw = extrairValorRotulo(linhas, /^NOME\s+DA\s+FORMADORA\s+MUNICIPAL\s*:/i);
+  if (!formadoraRaw) formadoraRaw = extrairValorRotulo(linhas, /^FORMADORA\s+MUNICIPAL\s*:/i);
+  if (!formadoraRaw) formadoraRaw = extrairValorRotulo(linhas, /^FORMADORA\s*:/i);
+  if (!formadoraRaw && nomeArquivo) {
+    const semExtensao = nomeArquivo.replace(/\.pdf$/i, '');
+    const partes = semExtensao.split(/\s[-–]\s/);
     if (partes.length > 1) {
-      let candidato = partes[1].replace(/\.pdf$/i, '').replace(/RELATÓRIO.*$|RELATORIO.*$/gi, '').trim();
-      if (candidato.length < 3 && partes.length > 2) candidato = partes[2].replace(/\.pdf$/i, '').trim();
-      formadora = candidato;
+      formadoraRaw = partes.slice(1).join(' - ')
+        .replace(/\bRELAT[ÓO]RIO\b.*$/i, '')
+        .replace(/\bDOCUMENTO\b.*$/i, '')
+        .replace(/\bFOTOS?\b.*$/i, '')
+        .replace(/[_–-]+$/g, '')
+        .replace(/_/g, ' ')
+        .trim();
     }
   }
-  const formadoraFinal = (formadora && formadora.length > 2 && !formadora.includes('_'))
-    ? formadora.toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+  const formadora = formadoraRaw
+    .replace(/\s+(?:RELAT[ÓO]RIO|DOCUMENTO)\b.*$/i, '')
+    .replace(/[.\s]+$/g, '')
+    .trim();
+  const formadoraFinal = formadora.length > 2
+    ? formadora.split(/\s+/).map(w => w.length <= 2 ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
     : 'Não encontrado';
 
   const cursistas = extrairNumeroEmLinha(linhas, /(?:NUMERO\s+TOTAL\s+DE\s+CURSISTAS\s+INSCRITOS|TOTAL\s+DE\s+CURSISTAS\s+INSCRITOS|CURSISTAS\s+INSCRITOS\s+NA\s+TURMA|INSCRITOS\s+NA\s+TURMA|TOTAL\s+DE\s+INSCRITOS)/);
   const presentes = extrairNumeroEmLinha(linhas, /(?:NUMERO\s+DE\s+CURSISTAS\s+PRESENTES\s+NO\s+ENCONTRO|CURSISTAS\s+PRESENTES\s+NO\s+ENCONTRO|PRESENTES\s+NO\s+ENCONTRO|CURSISTAS\s+PRESENTES)/);
   const faltas = extrairFaltas(linhas);
-  const atividades = extrairAtividades(linhas);
+  const atividades = extrairAtividades(linhas, texto);
 
   return { polo: poloFinal, municipio: municipioFinal, formadora: formadoraFinal, cursistas, presentes, faltas, atividades };
+}
+
+function observacaoDaLinha(dados: ReturnType<typeof extrairDados>, atividade: Atividade): string {
+  const pendencias: string[] = [];
+  if (dados.polo === 'Não encontrado') pendencias.push('Polo');
+  if (dados.municipio === 'Não encontrado') pendencias.push('Município');
+  if (dados.formadora === 'Não encontrado') pendencias.push('Formadora');
+  if (atividade.data === 'Não encontrado') pendencias.push('data do encontro');
+  if (atividade.ch === 'Não encontrado') pendencias.push('carga horária');
+  if (atividade.turno === 'Não encontrado') pendencias.push('turno');
+  if (dados.cursistas === 'Não encontrado') pendencias.push('total de cursistas');
+  if (dados.presentes === 'Não encontrado') pendencias.push('presentes');
+  if (dados.faltas === 'Não encontrado') pendencias.push('faltas justificadas');
+  return pendencias.length ? `Revisar extração: não foi possível identificar ${pendencias.join(', ')}.` : '';
 }
 
 export function gerarLinhasPlanilha(dados: ReturnType<typeof extrairDados>, nomeArquivo: string): LinhaPlanilhaProLEEI[] {
@@ -172,7 +302,7 @@ export function gerarLinhasPlanilha(dados: ReturnType<typeof extrairDados>, nome
     'Nº de cursistas': index === 0 ? dados.cursistas : '',
     'Nº de Presentes': index === 0 ? dados.presentes : '',
     'Faltas justificadas': index === 0 ? dados.faltas : '',
-    OBSERVAÇÃO: '',
+    OBSERVAÇÃO: observacaoDaLinha(dados, ativ),
     Arquivo_Origem: nomeArquivo
   }));
 }

@@ -9,7 +9,8 @@ import { EditRowModal } from './components/EditRowModal';
 import { 
   LinhaPlanilhaProLEEI, 
   extrairDados, 
-  gerarLinhasPlanilha 
+  gerarLinhasPlanilha,
+  ehRelatorioProleei
 } from './utils/proleeiParser';
 import { lerConteudoArquivo } from './utils/fileReader';
 import { 
@@ -108,6 +109,19 @@ export default function App() {
           continue;
         }
 
+        // Não transforma mensagens de falha do leitor em relatórios válidos.
+        // Antes, isso gerava linhas com dados ficticiamente "Não encontrado".
+        if (/Não foi possível (?:ler o conteúdo|extrair texto)|Não foi possível iniciar o OCR/i.test(texto)) {
+          erros.push(`${file.name}: Não foi possível ler o arquivo. Verifique se o PDF está íntegro ou se contém texto legível.`);
+          continue;
+        }
+
+        // Anexos fotográficos e PDFs auxiliares não devem virar linhas de relatório.
+        if (!ehRelatorioProleei(texto, file.name)) {
+          erros.push(`${file.name}: documento sem estrutura identificável de relatório ProLEEI; anexo não incluído.`);
+          continue;
+        }
+
         const dadosExtraidos = extrairDados(texto, file.name);
         const linhasDoArquivo = gerarLinhasPlanilha(dadosExtraidos, file.name);
 
@@ -123,11 +137,19 @@ export default function App() {
       }
     }
 
+    if (erros.length > 0) {
+      console.warn('Arquivos que precisam de revisão ou foram ignorados:', erros);
+    }
+
     if (novasLinhas.length > 0) {
       setLinhas(prev => [...novasLinhas, ...prev]);
-      mostrarNotificacao(`${arquivosSucesso} arquivo(s) lidos com sucesso! ${novasLinhas.length} novos encontros adicionados.`, 'sucesso');
+      const resumo = `${arquivosSucesso} arquivo(s) lidos; ${novasLinhas.length} encontro(s) adicionados.`;
+      mostrarNotificacao(
+        erros.length > 0 ? `${resumo} ${erros.length} arquivo(s) ignorados ou com falha. Primeiro caso: ${erros[0]}` : resumo,
+        erros.length > 0 ? 'aviso' : 'sucesso'
+      );
     } else if (erros.length > 0) {
-      mostrarNotificacao(`Nenhum dado válido extraído. ${erros[0]}`, 'aviso');
+      mostrarNotificacao(`Nenhum relatório válido foi incluído. ${erros.length} arquivo(s) precisam de revisão. Primeiro caso: ${erros[0]}`, 'aviso');
     }
 
     setIsProcessing(false);
